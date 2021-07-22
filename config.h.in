@@ -1,0 +1,7 @@
+#define zlib_VERSION_MAJOR @zlib_VERSION@
+#define zlib_VERSION_MINOR @zlib_VERSION_MINOR@
+#define zlib_VERSION_PATCH @zlib_VERSION_PATCH@
+#define zlib_VERSION_TWEAK @zlib_VERSION_TWEAK@
+
+#define zlib_VERSION @zlib_VERSION@
+ 
