@@ -3,12 +3,17 @@ cmake_minimum_required(VERSION 3.15)
 
 project(zlib
      VERSION 1.2.7.0
-   LANGUAGES  C
+   LANGUAGES  C CXX
     )
 
 set(VERSION "1.2.7")
 
-set(CMAKE_INSTALL_PREFIX  "${CMAKE_BINARY_DIR}/../install__zlib__VC14_Ver_debug" )
+#set(CMAKE_INSTALL_PREFIX  "${CMAKE_BINARY_DIR}/../install__zlib__VC14_Ver_debug" )
+
+
+###############################################
+include(cmake_kelvin/ProjectSsetting.cmake)
+###############################################
 
 
 #
@@ -28,11 +33,11 @@ include_directories(
 
 
 
-set(INSTALL_BIN_DIR "${CMAKE_INSTALL_PREFIX}/bin" CACHE PATH "Installation directory for executables")
-set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Installation directory for libraries")
-set(INSTALL_INC_DIR "${CMAKE_INSTALL_PREFIX}/include" CACHE PATH "Installation directory for headers")
-set(INSTALL_MAN_DIR "${CMAKE_INSTALL_PREFIX}/share/man" CACHE PATH "Installation directory for manual pages")
-set(INSTALL_PKGCONFIG_DIR "${CMAKE_INSTALL_PREFIX}/share/pkgconfig" CACHE PATH "Installation directory for pkgconfig (.pc) files")
+#set(INSTALL_BIN_DIR "${CMAKE_INSTALL_PREFIX}/bin" CACHE PATH "Installation directory for executables")
+#set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib" CACHE PATH "Installation directory for libraries")
+#set(INSTALL_INC_DIR "${CMAKE_INSTALL_PREFIX}/include" CACHE PATH "Installation directory for headers")
+#set(INSTALL_MAN_DIR "${CMAKE_INSTALL_PREFIX}/share/man" CACHE PATH "Installation directory for manual pages")
+#set(INSTALL_PKGCONFIG_DIR "${CMAKE_INSTALL_PREFIX}/share/pkgconfig" CACHE PATH "Installation directory for pkgconfig (.pc) files")
 
 include(CheckTypeSize)
 include(CheckFunctionExists)
@@ -110,9 +115,11 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR})
 # zlib
 #============================================================================
 
+include_directories(include )
+
 set(ZLIB_PUBLIC_HDRS
     ${CMAKE_CURRENT_BINARY_DIR}/zconf.h
-    zlib.h
+    include/zlib.h
 )
 set(ZLIB_PRIVATE_HDRS
     crc32.h
@@ -144,20 +151,53 @@ set(ZLIB_SRCS
 )
 
 if(NOT MINGW)
-    set(ZLIB_SRCS ${ZLIB_SRCS}
+    set(ZLIB_DLL_SRCS
         win32/zlib1.rc # If present will override custom build rule below.
     )
 endif()
 
+if(CMAKE_COMPILER_IS_GNUCC)
+    if(ASM686)
+        set(ZLIB_ASMS contrib/asm686/match.S)
+    elseif (AMD64)
+        set(ZLIB_ASMS contrib/amd64/amd64-match.S)
+    endif ()
+
+	if(ZLIB_ASMS)
+		add_definitions(-DASMV)
+		set_source_files_properties(${ZLIB_ASMS} PROPERTIES LANGUAGE C COMPILE_FLAGS -DNO_UNDERLINE)
+	endif()
+endif()
+
+if(MSVC)
+    if(ASM686)
+		ENABLE_LANGUAGE(ASM_MASM)
+        set(ZLIB_ASMS
+			contrib/masmx86/inffas32.asm
+			contrib/masmx86/match686.asm
+		)
+    elseif (AMD64)
+		ENABLE_LANGUAGE(ASM_MASM)
+        set(ZLIB_ASMS
+			contrib/masmx64/gvmat64.asm
+			contrib/masmx64/inffasx64.asm
+		)
+    endif()
+
+	if(ZLIB_ASMS)
+		add_definitions(-DASMV -DASMINF)
+	endif()
+endif()
+
 # parse the full version number from zlib.h and include in ZLIB_FULL_VERSION
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/zlib.h _zlib_h_contents)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/include/zlib.h _zlib_h_contents)
 string(REGEX REPLACE ".*#define[ \t]+ZLIB_VERSION[ \t]+\"([-0-9A-Za-z.]+)\".*"
     "\\1" ZLIB_FULL_VERSION ${_zlib_h_contents})
 
 if(MINGW)
     # This gets us DLL resource information when compiling on MinGW.
     if(NOT CMAKE_RC_COMPILER)
-        SET(CMAKE_RC_COMPILER windres.exe)
+        set(CMAKE_RC_COMPILER windres.exe)
     endif()
 
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/zlib1rc.obj
@@ -167,11 +207,13 @@ if(MINGW)
                             -I ${CMAKE_CURRENT_BINARY_DIR}
                             -o ${CMAKE_CURRENT_BINARY_DIR}/zlib1rc.obj
                             -i ${CMAKE_CURRENT_SOURCE_DIR}/win32/zlib1.rc)
-    set(ZLIB_SRCS ${ZLIB_SRCS} ${CMAKE_CURRENT_BINARY_DIR}/zlib1rc.obj)
+    set(ZLIB_DLL_SRCS ${CMAKE_CURRENT_BINARY_DIR}/zlib1rc.obj)
 endif(MINGW)
 
-add_library(zlib SHARED ${ZLIB_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
-add_library(zlibstatic STATIC ${ZLIB_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
+include_directories(include)
+
+add_library(zlib SHARED ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_DLL_SRCS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
+add_library(zlibstatic STATIC ${ZLIB_SRCS} ${ZLIB_ASMS} ${ZLIB_PUBLIC_HDRS} ${ZLIB_PRIVATE_HDRS})
 set_target_properties(zlib PROPERTIES DEFINE_SYMBOL ZLIB_DLL)
 set_target_properties(zlib PROPERTIES SOVERSION 1)
 
@@ -202,14 +244,54 @@ if(NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL )
         LIBRARY DESTINATION "${INSTALL_LIB_DIR}" )
 endif()
 if(NOT SKIP_INSTALL_HEADERS AND NOT SKIP_INSTALL_ALL )
-    install(FILES ${ZLIB_PUBLIC_HDRS} DESTINATION "${INSTALL_INC_DIR}")
+#    install(FILES ${ZLIB_PUBLIC_HDRS} DESTINATION "${INSTALL_INC_DIR}")
 endif()
 if(NOT SKIP_INSTALL_FILES AND NOT SKIP_INSTALL_ALL )
     install(FILES zlib.3 DESTINATION "${INSTALL_MAN_DIR}/man3")
 endif()
 if(NOT SKIP_INSTALL_FILES AND NOT SKIP_INSTALL_ALL )
-    install(FILES ${ZLIB_PC} DESTINATION "${INSTALL_PKGCONFIG_DIR}")
+#    install(FILES ${ZLIB_PC} DESTINATION "${INSTALL_PKGCONFIG_DIR}")
 endif()
+
+
+#//-----------------------------------------------------------------
+
+target_include_directories(zlib PRIVATE  ${CMAKE_SOURCE_DIR}/include)
+set_target_properties(zlib PROPERTIES PUBLIC_HEADER ${CMAKE_SOURCE_DIR}/include/zlib.h   )
+
+# 写入库的版本信息
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+        zlibConfigVersion.cmake
+        VERSION ${PACKAGE_VERSION}
+        COMPATIBILITY AnyNewerVersion
+        )
+
+# 将库文件，可执行文件，头文件安装到指定目录
+install(TARGETS zlib  zlibstatic
+        EXPORT zlibTargets
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+        PUBLIC_HEADER DESTINATION include
+        )
+
+# 将库的相关信息输出为MyMathConfig.cmake，供find_package查找
+install(EXPORT zlibTargets
+        FILE zlibTargets.cmake
+        NAMESPACE zlib::
+        DESTINATION lib/cmake/zlib
+        )
+
+configure_file(zlibConfig.cmake.in  zlibConfig.cmake @ONLY)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/zlibConfig.cmake"
+                "${CMAKE_CURRENT_BINARY_DIR}/zlibConfigVersion.cmake"
+        DESTINATION lib/cmake/zlib
+        )
+
+install(FILES  ${CMAKE_CURRENT_BINARY_DIR}/zconf.h     DESTINATION include )
+
+
 
 #============================================================================
 # Example binaries
@@ -245,7 +327,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/OCMS-post.cmake)
 ##
 #
 #-------------------------------------- install   ------------------------------
-set(CMAKE_INSTALL_PREFIX  "${CMAKE_BINARY_DIR}/../install__zlib__VC14_Ver_debug" )
+#set(CMAKE_INSTALL_PREFIX  "${CMAKE_BINARY_DIR}/../install__zlib__VC14_Ver_debug" )
 
 #
 ##
@@ -322,7 +404,7 @@ if(zlib_WITH_CMAKE_PACKAGE)
         # 安装 libBlackBdConfig.cmake  同时安装   libBlackBdConfig-release.cmake   LIBBLACKBORDER
         install(EXPORT zlib
             DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/zlib
-            FILE    zlibConfig.cmake)
+            FILE zlibConfig.cmake)
         # 创建 版本号文件
         write_basic_package_version_file (
             "${CMAKE_CURRENT_BINARY_DIR}/zlibConfigVersion.cmake"
